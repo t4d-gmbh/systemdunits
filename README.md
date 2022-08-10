@@ -1,2 +1,3 @@
-# servicetimer
-Small package to convert a schedule into systemd timer units
+# SystemdUnits
+
+Small package to write unit files for systemd.
