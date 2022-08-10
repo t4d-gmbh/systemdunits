@@ -4,19 +4,23 @@ from configparser import RawConfigParser
 
 
 class SystemdUnit(RawConfigParser):
-    def __init__(self, name: str = None):
+    def __init__(self, name: str = None, extension: str = None):
         super().__init__(default_section=None, interpolation=None)
         self.optionxform = str
         self.name = name
+        self.extension = extension
         self._space_around_delimiters = False
+        self.add_section('Unit')
 
     def write_unit(self, path: str, name: str = None):
         """Write the unit to a file
         """
-        name = name or self.name
+        name = self._extended_name(name)
         if not name:
             raise ValueError('You need to provide a valid name for the unit'
                              f' file. "{name}" is not a valid name')
+        if self.extension and not name.endswith(self.extension):
+            name += f".{self.extension}"
 
         export_u = self._externalise_internals()
 
@@ -78,7 +82,6 @@ class SystemdUnit(RawConfigParser):
         else:
             return False
 
-
     def read_unit(self, name: str, path: str = None):
         """Read a systemd unit file
         """
@@ -86,6 +89,8 @@ class SystemdUnit(RawConfigParser):
             filename = os.path.join(path, name)
         else:
             filename = name
+
+        filename = self._extended_name(filename)
 
         self.read(filename)
         self = self._internalise_internals()
@@ -110,8 +115,20 @@ class SystemdUnit(RawConfigParser):
         self[name]._internal = True
         self[name].update(options)
 
+    def _extended_name(self, name: str = None):
+        name = name or self.name
+        if name:
+            if self.extension and not name.endswith(self.extension):
+                name += f".{self.extension}"
+        return name
+
+
+class ServiceUnit(SystemdUnit):
+    def __init__(self, name: str = None):
+        super().__init__(name=name, extension='service')
+
 
 class TimerUnit(SystemdUnit):
     def __init__(self, name: str = None):
-        super().__init__(name=name)
+        super().__init__(name=name, extension='timer')
         self.add_section('Timer')
