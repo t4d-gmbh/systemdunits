@@ -3,7 +3,7 @@ from setuptools import setup
 setup(
     name='systemdunits',
     version='0.1.0',
-    description='Small package to write unit files for systemd',
+    description='Small package for reading and writing systemd unit files',
     url='https://github.com/tools4digits/systemdunits',
     author='Jonas Liechti',
     license='GPL-v3',
