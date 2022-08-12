@@ -1,3 +1,3 @@
 # SystemdUnits
 
-Small package to write unit files for systemd.
+Small package for reading and writing systemd unit files.
