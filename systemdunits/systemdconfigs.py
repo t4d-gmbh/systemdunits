@@ -126,6 +126,7 @@ class SystemdUnit(RawConfigParser):
 class ServiceUnit(SystemdUnit):
     def __init__(self, name: str = None):
         super().__init__(name=name, extension='service')
+        self.add_section('Service')
 
 
 class TimerUnit(SystemdUnit):
