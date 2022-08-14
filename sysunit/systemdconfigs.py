@@ -199,9 +199,12 @@ class SystemUnit(object):
         )
 
         if unit_config is None:
+            # ###
+            # NOTE: to get rid of once UnitConfig drops name
             _name = self.name
             if self.template:
                 _name += '@'
+            # ###
             self.config = _type_maps[self.type](_name)
         else:
             self.config = unit_config
@@ -326,7 +329,7 @@ class SystemUnit(object):
     def type(self, unit_type: str):
         # TODO: make sure the type is a valid type
         self._type = unit_type
-        # NOTE: to get rid off once UnitConfig drops extension
+        # NOTE: to get rid of once UnitConfig drops extension
         if hasattr(self, '_config'):
             self._config.extension = self._type
 
