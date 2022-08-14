@@ -1,7 +1,7 @@
 from setuptools import setup
 
 setup(
-    name='systemdunits',
+    name='sysunit',
     version='0.1.0',
     description='Small package for reading and writing systemd unit files',
     url='https://github.com/tools4digits/systemdunits',
@@ -11,8 +11,9 @@ setup(
     keywords='systemd units timer service',
     classifiers=[
           'Intended Audience :: Developers',
+          'Programming Language :: Python :: 3.8',
           'Programming Language :: Python :: 3.9',
-          'Programming Language :: Python',
+          'Programming Language :: Python :: 3.10',
           'Topic :: Software Development :: Libraries :: Python Modules',
     ],
 )
