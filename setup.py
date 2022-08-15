@@ -2,12 +2,12 @@ from setuptools import setup
 
 setup(
     name='sysunit',
-    version='0.1.0',
+    version='0.2.0',
     description='Small package for reading and writing systemd unit files',
     url='https://github.com/tools4digits/systemdunits',
     author='Jonas Liechti',
     license='GPL-v3',
-    author_email='',
+    author_email='j.i.liechti@protonmail.ch',
     keywords='systemd units timer service',
     classifiers=[
           'Intended Audience :: Developers',
