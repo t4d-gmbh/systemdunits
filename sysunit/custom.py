@@ -2,7 +2,12 @@ import sys
 import itertools
 from collections.abc import Iterable
 
-from configparser import SectionProxy, RawConfigParser
+from configparser import (
+        SectionProxy, RawConfigParser,
+        DuplicateSectionError, DuplicateOptionError,
+        MissingSectionHeaderError
+)
+
 
 class MultiConfigParser(RawConfigParser):
     def __init__(self, *args, **kwargs):
@@ -78,10 +83,10 @@ class MultiConfigParser(RawConfigParser):
                     # add empty line to the value, but only if there was no
                     # comment on the line
                     if (comment_start is None and
-                        cursect is not None and
-                        optname and
-                        cursect[optname] is not None):
-                        cursect[optname].append('') # newlines added at join
+                            cursect is not None and
+                            optname and
+                            cursect[optname] is not None):
+                        cursect[optname].append('')  # newlines added at join
                 else:
                     # empty line marks end of value
                     indent_level = sys.maxsize
@@ -90,7 +95,7 @@ class MultiConfigParser(RawConfigParser):
             first_nonspace = self.NONSPACECRE.search(line)
             cur_indent_level = first_nonspace.start() if first_nonspace else 0
             if (cursect is not None and optname and
-                cur_indent_level > indent_level):
+                    cur_indent_level > indent_level):
                 cursect[optname].append(value)
             # a section header or option header?
             else:
@@ -126,7 +131,7 @@ class MultiConfigParser(RawConfigParser):
                             e = self._handle_error(e, fpname, lineno, line)
                         optname = self.optionxform(optname.rstrip())
                         if (self._strict and
-                            (sectname, optname) in elements_added):
+                                (sectname, optname) in elements_added):
                             raise DuplicateOptionError(sectname, optname,
                                                        fpname, lineno)
                         elements_added.add((sectname, optname))
@@ -160,7 +165,7 @@ class MultiConfigParser(RawConfigParser):
             value = self._interpolation.before_write(self, section_name, key,
                                                      value)
             if not (section_name, key) in self._multioptions:
-                value = [value,]
+                value = [value, ]
             for _value in value:
                 if _value is not None or not self._allow_no_value:
                     _value = delimiter + str(_value).replace('\n', '\n\t')
@@ -181,4 +186,3 @@ class MultiConfigParser(RawConfigParser):
                 options[name] = self._interpolation.before_read(self,
                                                                 section,
                                                                 name, val)
-

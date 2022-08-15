@@ -3,22 +3,22 @@ import copy
 from types import SimpleNamespace
 from collections import OrderedDict
 import typing
-from configparser import RawConfigParser
 
 from .custom import MultiConfigParser
 from .utils import noglobals
 
+
 class UnitConfig(MultiConfigParser):
     def __init__(self, name: str = None, extension: str = None):
         super().__init__(default_section=None,
-                         interpolation=None, 
+                         interpolation=None,
                          dict_type=OrderedDict
                          )
         self.optionxform = str
         self.name = name
         self.extension = extension
         self._space_around_delimiters = False
-        if not 'Unit' in self.sections():
+        if 'Unit' not in self.sections():
             self.add_section('Unit')
 
     def write_config(self, path: str, name: str = None):
@@ -110,7 +110,7 @@ class UnitConfig(MultiConfigParser):
           the `update_internal_section` method instead.
 
         """
-        if not name in self.sections():
+        if name not in self.sections():
             self.add_section(name)
         self[name]._internal = False
         self[name].update(options)
@@ -120,11 +120,11 @@ class UnitConfig(MultiConfigParser):
         """
         if name.startswith('x-'):
             name = name[2:]
-        if not name in self.sections():
+        if name not in self.sections():
             self.add_section(name)
         self[name]._internal = True
         self[name].update({k: str(v) for k, v in options.items()})
-    
+
     def pop_section(self, name: str):
         """Return and remove a section from the configuration.
 
@@ -137,35 +137,49 @@ class UnitConfig(MultiConfigParser):
         self.remove_section(name)
         return section
 
+    @noglobals
     def formatted(self, **variables):
         """Return a copy of this instance with formatted values of the options
         """
         formatted_config = copy.copy(self)
         for section in formatted_config.sections():
-            for item in formatted_config.items(section):
-                formatted_config.set(section, item[0], item[1].format(**variables))
+            for name, value in formatted_config.items(section):
+                _multiopt = False
+                if (section, name) in self._multioptions:
+                    _multiopt = True
+                    value_formatted = [val.format(**variables)
+                                       for val in value]
+                else:
+                    value_formatted = value.format(**variables)
+                formatted_config.set(
+                    section,
+                    name,
+                    value_formatted,
+                    multioption=_multiopt
+                )
         return formatted_config
 
 
 class ServiceConfig(UnitConfig):
     def __init__(self, name: str = None):
         super().__init__(name=name, extension='service')
-        if not 'Service' in self.sections():
+        if 'Service' not in self.sections():
             self.add_section('Service')
 
 
 class TimerConfig(UnitConfig):
     def __init__(self, name: str = None):
         super().__init__(name=name, extension='timer')
-        if not 'Timer' in self.sections():
+        if 'Timer' not in self.sections():
             self.add_section('Timer')
 
 
 class PathConfig(UnitConfig):
     def __init__(self, name: str = None):
         super().__init__(name=name, extension='path')
-        if not 'Path' in self.sections():
+        if 'Path' not in self.sections():
             self.add_section('Path')
+
 
 class SystemUnit(object):
     def __init__(self,
@@ -173,12 +187,17 @@ class SystemUnit(object):
                  unit_config: typing.Optional[UnitConfig] = None,
                  unit_type: typing.Optional[str] = 'service',
                  path: str = None,
-                 template: bool=False,
+                 template: bool = False,
                  ):
         """
 
         **Note:**
 
+        - If you use `{...}` in the `name` then the unit is considered a 
+          batch of units and all the values of all the options are formatted
+          when writing the unit to a file. As a consequence **you need to**
+          **escape all `{` and `}` that should not be formatted!**
+          Hint: replace for example `"${HOME}"` with `"${{HOME}}"`.
         - If the unit type is provided as an extension in `name` then the
           parameter `unit_type` is ignored.
         - If `name` contains an "@" then the parameter `template` is ignored
@@ -210,9 +229,9 @@ class SystemUnit(object):
 
     def _init_config(self, unit_config):
         _type_maps = dict(
-            service = ServiceConfig,
-            timer = TimerConfig,
-            path = PathConfig
+            service=ServiceConfig,
+            timer=TimerConfig,
+            path=PathConfig
         )
 
         if unit_config is None:
@@ -226,8 +245,16 @@ class SystemUnit(object):
         else:
             self.config = unit_config
 
+    def set(self, section, option, value, multioption=False):
+        """Set the value of an option in a section"""
+        return self.config.set(section, option, value, multioption)
+
+    def append(self, section, option, value, multioption=False):
+        """Append other value to an option in a section"""
+        return self.config.append(section, option, value)
+
     def _init_batch_vars(self,):
-        self._batch_vars = SimpleNamespace()
+        self.batch_vars = SimpleNamespace()
 
     @property
     def config(self):
@@ -240,7 +267,6 @@ class SystemUnit(object):
         if unit_config.name:
             self.name = unit_config.name
         self._config = unit_config
-
 
     @property
     def path(self):
@@ -298,7 +324,7 @@ class SystemUnit(object):
         # fetch the unit type
         parts = name.split('.')
         assert len(parts) <= 2, '`name` can contain only a single ".",'\
-                f'"{name}" is not permitted.'
+            f'"{name}" is not permitted.'
         _name = parts[0]
         _type = None
         if len(parts) == 2:
@@ -308,7 +334,7 @@ class SystemUnit(object):
         # determine if it is a template
         name_parts = _name.split('@')
         assert len(name_parts) <= 2, 'The name can only contain a'\
-                f' single "@", "{name}" is not permitted.'
+            f' single "@", "{name}" is not permitted.'
         _name = name_parts.pop(0)
         if len(name_parts):
             assert name_parts[0] == '', '`name` can only contain a "@" at its'\
@@ -334,7 +360,7 @@ class SystemUnit(object):
         """
         return self._full_name(self.name)
 
-    def _full_name(self, name): 
+    def _full_name(self, name):
         return f'{name}{self._template_str}.{self.type}'
 
     def to_dict(self):
@@ -347,7 +373,7 @@ class SystemUnit(object):
     def type(self):
         """The type of the service unit"""
         return self._type
-    
+
     @type.setter
     def type(self, unit_type: str):
         # TODO: make sure the type is a valid type
@@ -359,8 +385,6 @@ class SystemUnit(object):
     @property
     def template(self):
         """The define if the unit is a template or not"""
-        if self._template:
-            _marked = True
         return self._template
 
     @template.setter
@@ -385,21 +409,23 @@ class SystemUnit(object):
         config.write_config(path=path, name=name)
 
     def _write_batched(self):
-        assert self._batch_vars is not None
-        batched_variables = vars(self._batch_vars)
+        assert vars(self.batch_vars), "Missing batch variables.\nDid you"\
+                " forget to specify your batch variables with"\
+                " `self.batch_vars?"
+        batched_variables = vars(self.batch_vars)
         nbr_values = len(next(iter(batched_variables.values())))
         # for each name create a new config {name: config, ...}
         batch_configs = dict()
         for i in range(nbr_values):
-            _variables = {k: v[i] for k,v in batched_variables.items()}
+            _variables = {k: v[i] for k, v in batched_variables.items()}
             batch_configs.update(self._format_config(variables=_variables))
         for name, config in batch_configs.items():
             self._write(config=config, path=self.path, name=name)
 
     @noglobals
     def _format_config(self, variables):
-            full_name = self._full_name(self.name.format(**variables))
-            return {full_name: self.config.formatted(**variables)}
+        full_name = self._full_name(self.name.format(**variables))
+        return {full_name: self.config.formatted(**variables)}
 
     def read(self,):
         """Attempt to read the configuration from file
