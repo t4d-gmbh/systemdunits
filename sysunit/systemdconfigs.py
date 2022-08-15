@@ -1,12 +1,19 @@
 import os
 import copy
+from types import SimpleNamespace
+from collections import OrderedDict
 import typing
 from configparser import RawConfigParser
+
+from .utils import noglobals
 
 
 class UnitConfig(RawConfigParser):
     def __init__(self, name: str = None, extension: str = None):
-        super().__init__(default_section=None, interpolation=None)
+        super().__init__(default_section=None,
+                         interpolation=None, 
+                         dict_type=OrderedDict
+                         )
         self.optionxform = str
         self.name = name
         self.extension = extension
@@ -130,6 +137,15 @@ class UnitConfig(RawConfigParser):
         self.remove_section(name)
         return section
 
+    def formatted(self, **variables):
+        """Return a copy of this instance with formatted values of the options
+        """
+        formatted_config = copy.copy(self)
+        for section in formatted_config.sections():
+            for item in formatted_config.items(section):
+                formatted_config.set(section, item[0], item[1].format(**variables))
+        return formatted_config
+
 
 class ServiceConfig(UnitConfig):
     def __init__(self, name: str = None):
@@ -190,6 +206,7 @@ class SystemUnit(object):
         self.name = name
         self.path = path
         self._init_config(unit_config)
+        self._init_batch_vars()
 
     def _init_config(self, unit_config):
         _type_maps = dict(
@@ -208,6 +225,9 @@ class SystemUnit(object):
             self.config = _type_maps[self.type](_name)
         else:
             self.config = unit_config
+
+    def _init_batch_vars(self,):
+        self._batch_vars = SimpleNamespace()
 
     @property
     def config(self):
@@ -296,6 +316,8 @@ class SystemUnit(object):
                     f'"{name}" is thus not a valid name.'
             self.template = True
         self._name = _name
+        if '{' in self._name and '}' in self._name:
+            self._batched = True
 
     @property
     def full_name(self):
@@ -310,15 +332,16 @@ class SystemUnit(object):
         my_unit@.service
 
         """
-        return f'{self.name}{self._template_str}.{self.type}'
+        return self._full_name(self.name)
+
+    def _full_name(self, name): 
+        return f'{name}{self._template_str}.{self.type}'
 
     def to_dict(self):
         """Export the configuration to a dictionary
         """
         return {sect: dict(self.config[sect])
                 for sect in self.config.sections()}
-
-        
 
     @property
     def type(self):
@@ -348,11 +371,35 @@ class SystemUnit(object):
         else:
             self._template_str = ''
 
-    def write(self,):
+    def write(self):
         """Write the unit out to file
         """
-        self.config.write_config(path=self.path, name=self.full_name)
+        if self._batched:
+            self._write_batched()
+        else:
+            self._write(config=self.config,
+                        path=self.path,
+                        name=self.full_name)
 
+    def _write(self, config, name, path):
+        config.write_config(path=path, name=name)
+
+    def _write_batched(self):
+        assert self._batch_vars is not None
+        batched_variables = vars(self._batch_vars)
+        nbr_values = len(next(iter(batched_variables.values())))
+        # for each name create a new config {name: config, ...}
+        batch_configs = dict()
+        for i in range(nbr_values):
+            _variables = {k: v[i] for k,v in batched_variables.items()}
+            batch_configs.update(self._format_config(variables=_variables))
+        for name, config in batch_configs.items():
+            self._write(config=config, path=self.path, name=name)
+
+    @noglobals
+    def _format_config(self, variables):
+            full_name = self._full_name(self.name.format(**variables))
+            return {full_name: self.config.formatted(**variables)}
 
     def read(self,):
         """Attempt to read the configuration from file
