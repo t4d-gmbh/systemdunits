@@ -149,8 +149,6 @@ class UnitConfig(MultiConfigParser):
                     value_formatted = [val.format(**variables)
                                        for val in value]
                 else:
-                    print(value)
-                    print(variables)
                     value_formatted = value.format(**variables)
                 new_config.set(
                     section,
