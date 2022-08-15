@@ -5,10 +5,10 @@ from collections import OrderedDict
 import typing
 from configparser import RawConfigParser
 
+from .custom import MultiConfigParser
 from .utils import noglobals
 
-
-class UnitConfig(RawConfigParser):
+class UnitConfig(MultiConfigParser):
     def __init__(self, name: str = None, extension: str = None):
         super().__init__(default_section=None,
                          interpolation=None, 

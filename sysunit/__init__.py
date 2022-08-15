@@ -5,6 +5,7 @@
 """
 import doctest
 
+from .custom import MultiConfigParser
 from .systemdconfigs import SystemUnit, TimerConfig
 
 
