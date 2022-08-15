@@ -138,26 +138,27 @@ class UnitConfig(MultiConfigParser):
         return section
 
     @noglobals
-    def formatted(self, **variables):
+    def formatted(self, new_config, **variables):
         """Return a copy of this instance with formatted values of the options
         """
-        formatted_config = copy.copy(self)
-        for section in formatted_config.sections():
-            for name, value in formatted_config.items(section):
+        for section in new_config.sections():
+            for name, value in new_config.items(section):
                 _multiopt = False
                 if (section, name) in self._multioptions:
                     _multiopt = True
                     value_formatted = [val.format(**variables)
                                        for val in value]
                 else:
+                    print(value)
+                    print(variables)
                     value_formatted = value.format(**variables)
-                formatted_config.set(
+                new_config.set(
                     section,
                     name,
                     value_formatted,
                     multioption=_multiopt
                 )
-        return formatted_config
+        return new_config
 
 
 class ServiceConfig(UnitConfig):
@@ -193,7 +194,7 @@ class SystemUnit(object):
 
         **Note:**
 
-        - If you use `{...}` in the `name` then the unit is considered a 
+        - If you use `{...}` in the `name` then the unit is considered a
           batch of units and all the values of all the options are formatted
           when writing the unit to a file. As a consequence **you need to**
           **escape all `{` and `}` that should not be formatted!**
@@ -418,14 +419,17 @@ class SystemUnit(object):
         batch_configs = dict()
         for i in range(nbr_values):
             _variables = {k: v[i] for k, v in batched_variables.items()}
-            batch_configs.update(self._format_config(variables=_variables))
+            new_config = copy.deepcopy(self.config)
+            batch_configs.update(
+                self._format_config(new_config, variables=_variables)
+            )
         for name, config in batch_configs.items():
             self._write(config=config, path=self.path, name=name)
 
     @noglobals
-    def _format_config(self, variables):
+    def _format_config(self, new_config, variables):
         full_name = self._full_name(self.name.format(**variables))
-        return {full_name: self.config.formatted(**variables)}
+        return {full_name: self.config.formatted(new_config, **variables)}
 
     def read(self,):
         """Attempt to read the configuration from file
