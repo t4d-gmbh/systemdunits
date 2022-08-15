@@ -368,6 +368,33 @@ class SystemUnit(object):
         return {sect: dict(self.config[sect])
                 for sect in self.config.sections()}
 
+    def from_dict(self, unit_dict: dict):
+        """Load a configuration from a dictionary
+
+        Parameters:
+        -----------
+        :param: unit_dict
+           a dictionary holding for each section a dictionary with options.
+
+           **Note:**
+
+           If the values in the options dictionary are of type tuple, then the
+           2nd element must be a boolean indicating whether or not the option
+           should be considered as a multi-option.
+           Multi-options have a list as value and lead to a separate line for
+           each element with repeated option name, when writing to an unit
+           file.
+        """
+        for service, options in unit_dict.items():
+            if service not in self.config.sections():
+                self.config.add_section(service)
+            for name, value in options.items():
+                if not isinstance(value, tuple):
+                    _value = (value, False)
+                else:
+                    _value = value
+                self.set(service, name, *_value)
+
     @property
     def type(self):
         """The type of the service unit"""

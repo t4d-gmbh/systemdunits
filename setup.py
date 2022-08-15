@@ -2,7 +2,7 @@ from setuptools import setup
 
 setup(
     name='sysunit',
-    version='0.3.4',
+    version='0.3.5',
     description='Small package for reading and writing systemd unit files',
     url='https://github.com/tools4digits/systemdunits',
     author='Jonas Liechti',
