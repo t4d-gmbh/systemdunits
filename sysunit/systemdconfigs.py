@@ -6,6 +6,7 @@ import typing
 
 from .custom import MultiConfigParser
 from .utils import noglobals
+from .commands import async_systemctl
 
 
 class UnitConfig(MultiConfigParser):
@@ -359,8 +360,55 @@ class SystemUnit(object):
         """
         return self._full_name(self.name)
 
-    def _full_name(self, name):
-        return f'{name}{self._template_str}.{self.type}'
+
+    @property
+    def expanded_names(self):
+        """Get a list of all unit names.
+
+        **Note:**
+        If the unit is not batched (see ... for further details) then a list
+        containing only the full name of the unit is returned.
+
+        Example:
+
+        >>> my_unit_batch = SystemUnit(name='my_unit-{custom}.service')
+        >>> my_unit_batch.batch_vars.custom = ['bla', 'blu', 'bli']
+        >>> print(my_unit_batch.full_name)
+        my_unit-{custom}.service
+        >>> for unit_name in my_unit_batch.expanded_names:
+        ...     print(unit_name)
+        my_unit-bla.service
+        my_unit-blu.service
+        my_unit-bli.service
+        """
+        if not self._batched:
+            return [self.full_name,]
+        else:
+            names = []
+            batched_variables = self._get_batched_vars()
+            nbr_values = len(next(iter(batched_variables.values())))
+            for i in range(nbr_values):
+                _variables = {k: v[i] for k, v in batched_variables.items()}
+                names.append(self._formatted_name(**_variables))
+            return names
+
+    def _full_name(self, name, instance=''):
+        return f'{name}{self._template_str}{instance}.{self.type}'
+
+    def instance_name(self, instance: str):
+        """Get the full name for a particular instance
+
+        Example:
+
+        >>> my_new_unit = SystemUnit(name='my_unit@.service')
+        >>> print(my_new_unit.full_name)
+        my_unit@.service
+        >>> print(my_new_unit.instance_name('inst1'))
+        my_unit@inst1.service
+        """
+        assert self._template, 'The unit must be a template! You can convert'\
+                ' a unit to a template by setting self.template = True'
+        return self._full_name(self.name, instance=instance)
 
     def to_dict(self):
         """Export the configuration to a dictionary
@@ -435,10 +483,7 @@ class SystemUnit(object):
         config.write_config(path=path, name=name)
 
     def _write_batched(self):
-        assert vars(self.batch_vars), "Missing batch variables.\nDid you"\
-                " forget to specify your batch variables with"\
-                " `self.batch_vars?"
-        batched_variables = vars(self.batch_vars)
+        batched_variables = self._get_batched_vars()
         nbr_values = len(next(iter(batched_variables.values())))
         # for each name create a new config {name: config, ...}
         batch_configs = dict()
@@ -446,17 +491,65 @@ class SystemUnit(object):
             _variables = {k: v[i] for k, v in batched_variables.items()}
             new_config = copy.deepcopy(self.config)
             batch_configs.update(
-                self._format_config(new_config, variables=_variables)
+                {
+                    self._formatted_name(**_variables):
+                        self._formatted_config(new_config, **_variables)
+                }
             )
         for name, config in batch_configs.items():
             self._write(config=config, path=self.path, name=name)
 
+    def _get_batched_vars(self):
+        assert vars(self.batch_vars), "Missing batch variables.\nDid you"\
+                " forget to specify your batch variables with"\
+                " `self.batch_vars?"
+        return vars(self.batch_vars)
+
     @noglobals
-    def _format_config(self, new_config, variables):
-        full_name = self._full_name(self.name.format(**variables))
-        return {full_name: self.config.formatted(new_config, **variables)}
+    def _formatted_name(self, **variables):
+        return self._full_name(self.name.format(**variables))
+
+    @noglobals
+    def _formatted_instance_name(self, instance:str,  **variables):
+        return self._full_name(self.name.format(**variables),
+                               instance=instance)
+
+    @noglobals
+    def _formatted_config(self, new_config, **variables):
+        return self.config.formatted(new_config, **variables)
 
     def read(self,):
         """Attempt to read the configuration from file
         """
         self.config.read_config(name=self.full_name, path=self.path)
+
+    # TODO: make basic command passing command='enable' as argument
+    async def _command(self, command: str, instance: str | None, env: typing.Optional[dict]):
+        if self._batched:
+            stdout, stderr = {}, {}
+            batched_variables = self._get_batched_vars()
+            nbr_values = len(next(iter(batched_variables.values())))
+            for i in range(nbr_values):
+                _variables = {k: v[i] for k, v in batched_variables.items()}
+                _name = self._formatted_instance_name(instance, **_variables)
+                _stdout, _stderr = await async_systemctl(_name, command, env=env)
+                stdout[_name] = _stdout
+                stderr[_name] = _stderr
+        else:
+            stdout, stderr = await async_systemctl(self.instance_name(instance), command, env=env)
+        return stdout, stderr
+
+    async def status(self, instance: str | None, env: typing.Optional[dict]):
+        return await self._command('start', instnace=instnace, env=env)
+
+    async def start(self, instance: str | None, env: typing.Optional[dict]):
+        return await self._command('start', instnace=instnace, env=env)
+    
+    async def stop(self, instance: str | None, env: typing.Optional[dict]):
+        return await self._command('stop', instnace=instnace, env=env)
+
+    async def enable(self, instance: str | None, env: typing.Optional[dict]):
+        return await self._command('enable', instnace=instnace, env=env)
+
+    async def disable(self, instance: str | None, env: typing.Optional[dict]):
+        return await self._command('disable', instnace=instnace, env=env)
