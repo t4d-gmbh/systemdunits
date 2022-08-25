@@ -15,4 +15,5 @@ __all__ = [
 
 def load_tests(loader, tests, ignore):
     tests.addTests(doctest.DocTestSuite(systemdconfigs))
+    tests.addTests(doctest.DocTestSuite(commands))
     return tests

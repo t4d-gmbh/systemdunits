@@ -1,12 +1,13 @@
 import os
 import copy
+import typing
 from types import SimpleNamespace
 from collections import OrderedDict
-import typing
+from functools import partial
 
 from .custom import MultiConfigParser
 from .utils import noglobals
-from .commands import async_systemctl
+from .commands import _Run
 
 
 class UnitConfig(MultiConfigParser):
@@ -39,6 +40,12 @@ class UnitConfig(MultiConfigParser):
                 space_around_delimiters=self._space_around_delimiters
             )
         del export_u
+
+    def to_dict(self):
+        """Export the configuration to a dictionary
+        """
+        return {sect: dict(self[sect])
+                for sect in self.sections()}
 
     def _externalise_internals(self,):
         external_u = copy.copy(self)
@@ -160,6 +167,11 @@ class UnitConfig(MultiConfigParser):
         return new_config
 
 
+class TargetConfig(UnitConfig):
+    def __init__(self, name: str = None):
+        super().__init__(name=name, extension='target')
+
+
 class ServiceConfig(UnitConfig):
     def __init__(self, name: str = None):
         super().__init__(name=name, extension='service')
@@ -226,9 +238,11 @@ class SystemUnit(object):
         self.path = path
         self._init_config(unit_config)
         self._init_batch_vars()
+        self.run = _Run(self)
 
     def _init_config(self, unit_config):
         _type_maps = dict(
+            target=TargetConfig,
             service=ServiceConfig,
             timer=TimerConfig,
             path=PathConfig
@@ -270,7 +284,12 @@ class SystemUnit(object):
 
     @property
     def path(self):
-        return self._path
+        """The path where the unit is, or should be, written.
+
+        You might use `'~'` in the path, it will be replaced by the user's
+        home directory, so the path `'~/.config/systemd/user'` is a valid path.
+        """
+        return os.path.expanduser(self._path)
 
     @path.setter
     def path(self, path: str):
@@ -342,8 +361,13 @@ class SystemUnit(object):
                     f'"{name}" is thus not a valid name.'
             self.template = True
         self._name = _name
+        self._batched = False
         if '{' in self._name and '}' in self._name:
             self._batched = True
+
+    @property
+    def is_batched(self):
+        return self._batched
 
     @property
     def full_name(self):
@@ -359,7 +383,6 @@ class SystemUnit(object):
 
         """
         return self._full_name(self.name)
-
 
     @property
     def expanded_names(self):
@@ -381,19 +404,31 @@ class SystemUnit(object):
         my_unit-blu.service
         my_unit-bli.service
         """
+        return self._expanded_names(self._formatted_name)
+
+    def _expanded_names(self, formatter):
         if not self._batched:
-            return [self.full_name,]
+            return [self.full_name, ]
         else:
             names = []
             batched_variables = self._get_batched_vars()
             nbr_values = len(next(iter(batched_variables.values())))
             for i in range(nbr_values):
                 _variables = {k: v[i] for k, v in batched_variables.items()}
-                names.append(self._formatted_name(**_variables))
+                names.append(formatter(**_variables))
             return names
 
-    def _full_name(self, name, instance=''):
+    def _full_name(self, name, instance: typing.Optional[str] = None):
+        if instance is None:
+            instance = ''
         return f'{name}{self._template_str}{instance}.{self.type}'
+
+    def _instance_name(self, name: str,  instance: str):
+        if self._template:
+            assert self._template, 'The unit must be a template! You can'\
+                    ' convert a unit to a template by setting self.template'\
+                    ' = True'
+        return self._full_name(name, instance=instance)
 
     def instance_name(self, instance: str):
         """Get the full name for a particular instance
@@ -406,9 +441,28 @@ class SystemUnit(object):
         >>> print(my_new_unit.instance_name('inst1'))
         my_unit@inst1.service
         """
-        assert self._template, 'The unit must be a template! You can convert'\
-                ' a unit to a template by setting self.template = True'
-        return self._full_name(self.name, instance=instance)
+        return self._instance_name(name=self.name, instance=instance)
+
+    def instance_names(self, instance: str):
+        """Get the names for all units in the batch for a particular instance
+
+        Example:
+
+        >>> my_new_unit = SystemUnit(name='my_unit-{case}@.service')
+        >>> my_new_unit.batch_vars.case = [1, 2, 3]
+        >>> print(my_new_unit.full_name)
+        my_unit-{case}@.service
+        >>> for name in my_new_unit.instance_names('inst1'):
+        ...     print(name)
+        my_unit-1@inst1.service
+        my_unit-2@inst1.service
+        my_unit-3@inst1.service
+        """
+        assert self._batched, 'This method only works on batched units!'\
+                              'Use the method `instance_name` instead.'
+        return self._expanded_names(
+            partial(self._formatted_instance_name, instance=instance)
+        )
 
     def to_dict(self):
         """Export the configuration to a dictionary
@@ -473,7 +527,7 @@ class SystemUnit(object):
         """Write the unit out to file
         """
         if self._batched:
-            self._write_batched()
+            self._write_batch()
         else:
             self._write(config=self.config,
                         path=self.path,
@@ -482,26 +536,45 @@ class SystemUnit(object):
     def _write(self, config, name, path):
         config.write_config(path=path, name=name)
 
-    def _write_batched(self):
+    def _write_batch(self):
+        for name, config in self.batched_configs:
+            self._write(config=config, path=self.path, name=name)
+
+    @property
+    def batched_configs(self):
+        """Generator for looping over units (name, config) in a batched unit
+
+        Example:
+        >>> my_unit = SystemUnit(name='my_unit-{custom}.service')
+        >>> my_unit.from_dict(
+        ...     dict(Unit=dict(Description='something {custom}'))
+        ... )
+        >>> print(my_unit.to_dict())
+        {'Unit': {'Description': 'something {custom}'}, 'Service': {}}
+        >>> my_unit.batch_vars.custom = ['bla', 'blu', 'bli']
+        >>> for name, config in my_unit.batched_configs:
+        ...     print(name)
+        ...     print(config.to_dict())
+        my_unit-bla.service
+        {'Unit': {'Description': 'something bla'}, 'Service': {}}
+        my_unit-blu.service
+        {'Unit': {'Description': 'something blu'}, 'Service': {}}
+        my_unit-bli.service
+        {'Unit': {'Description': 'something bli'}, 'Service': {}}
+        """
         batched_variables = self._get_batched_vars()
         nbr_values = len(next(iter(batched_variables.values())))
         # for each name create a new config {name: config, ...}
-        batch_configs = dict()
         for i in range(nbr_values):
             _variables = {k: v[i] for k, v in batched_variables.items()}
             new_config = copy.deepcopy(self.config)
-            batch_configs.update(
-                {
-                    self._formatted_name(**_variables):
-                        self._formatted_config(new_config, **_variables)
-                }
-            )
-        for name, config in batch_configs.items():
-            self._write(config=config, path=self.path, name=name)
+            name = self._formatted_name(**_variables)
+            config = self._formatted_config(new_config, **_variables)
+            yield name, config
 
     def _get_batched_vars(self):
         assert vars(self.batch_vars), "Missing batch variables.\nDid you"\
-                " forget to specify your batch variables with"\
+                " forget to specify your batch variables in"\
                 " `self.batch_vars?"
         return vars(self.batch_vars)
 
@@ -510,7 +583,9 @@ class SystemUnit(object):
         return self._full_name(self.name.format(**variables))
 
     @noglobals
-    def _formatted_instance_name(self, instance:str,  **variables):
+    def _formatted_instance_name(self,
+                                 instance: typing.Optional[str],
+                                 **variables):
         return self._full_name(self.name.format(**variables),
                                instance=instance)
 
@@ -523,33 +598,13 @@ class SystemUnit(object):
         """
         self.config.read_config(name=self.full_name, path=self.path)
 
-    # TODO: make basic command passing command='enable' as argument
-    async def _command(self, command: str, instance: str | None, env: typing.Optional[dict]):
-        if self._batched:
-            stdout, stderr = {}, {}
-            batched_variables = self._get_batched_vars()
-            nbr_values = len(next(iter(batched_variables.values())))
-            for i in range(nbr_values):
-                _variables = {k: v[i] for k, v in batched_variables.items()}
-                _name = self._formatted_instance_name(instance, **_variables)
-                _stdout, _stderr = await async_systemctl(_name, command, env=env)
-                stdout[_name] = _stdout
-                stderr[_name] = _stderr
-        else:
-            stdout, stderr = await async_systemctl(self.instance_name(instance), command, env=env)
-        return stdout, stderr
-
-    async def status(self, instance: str | None, env: typing.Optional[dict]):
-        return await self._command('start', instnace=instnace, env=env)
-
-    async def start(self, instance: str | None, env: typing.Optional[dict]):
-        return await self._command('start', instnace=instnace, env=env)
-    
-    async def stop(self, instance: str | None, env: typing.Optional[dict]):
-        return await self._command('stop', instnace=instnace, env=env)
-
-    async def enable(self, instance: str | None, env: typing.Optional[dict]):
-        return await self._command('enable', instnace=instnace, env=env)
-
-    async def disable(self, instance: str | None, env: typing.Optional[dict]):
-        return await self._command('disable', instnace=instnace, env=env)
+    def remove(self):
+        """Remove unit files from disk.
+        """
+        # TODO: allow removal of single unit if it is _batched
+        for name in self.expanded_names:
+            try:
+                os.remove(os.path.join(self.path, name))
+            except FileNotFoundError:
+                raise Warning(f'No unit matching the name {name} to remove at'
+                              f'{self.path}')
