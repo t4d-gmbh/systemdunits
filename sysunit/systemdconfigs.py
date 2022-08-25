@@ -200,6 +200,7 @@ class SystemUnit(object):
                  unit_type: typing.Optional[str] = 'service',
                  path: str = None,
                  template: bool = False,
+                 manager: str = '--user'
                  ):
         """
 
@@ -238,7 +239,7 @@ class SystemUnit(object):
         self.path = path
         self._init_config(unit_config)
         self._init_batch_vars()
-        self.run = _Run(self)
+        self.run = _Run(self, manager)
 
     def _init_config(self, unit_config):
         _type_maps = dict(

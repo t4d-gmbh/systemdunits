@@ -5,15 +5,15 @@ from types import SimpleNamespace
 
 
 class _Run:
-    def __init__(self, sysunit):
+    def __init__(self, sysunit, manager: str = '--user'):
         self.sysunit = sysunit
         self.last = SimpleNamespace
+        assert manager in ['--user', '--system']
+        self.manager = manager
 
-    @classmethod
-    async def async_systemctl(cls,
+    async def async_systemctl(self,
                               unit: str,
                               command: str,
-                              manager: str = '--user',
                               env: dict = dict(),
                               stdout=asyncio.subprocess.PIPE,
                               stderr=asyncio.subprocess.PIPE,
@@ -25,7 +25,7 @@ class _Run:
 
         stdout, stderr
         """
-        args = ['systemctl', manager, command]
+        args = ['systemctl', self.manager, command]
         if unit:
             args.append(unit)
         proc = await asyncio.create_subprocess_exec(
@@ -172,14 +172,13 @@ class _Run:
                       env: typing.Optional[dict] = None):
         return await self._unit_cmd('disable', instance=instance, env=env)
 
-    @classmethod
-    async def daemon_reload(cls, manager: str = '--user'):
+    async def daemon_reload(self):
         """Reload the systemd daemon
 
         Example:
         --------
         >>> import asyncio
-        >>> out, err = asyncio.run(_Run.daemon_reload())
+        >>> out, err = asyncio.run(_Run(None).daemon_reload())
         """
-        return await cls.async_systemctl(
-                unit='', command='daemon-reload', manager=manager)
+        return await self.async_systemctl(
+                unit='', command='daemon-reload')
