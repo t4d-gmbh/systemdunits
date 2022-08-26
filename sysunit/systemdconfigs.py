@@ -2,7 +2,6 @@ import os
 import copy
 import typing
 from types import SimpleNamespace
-from functools import partial
 
 from .unit_configs import (
         UnitConfig,
