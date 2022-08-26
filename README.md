@@ -31,7 +31,7 @@ my_target.write()
 # reload the systmd daemon (this is an async operation)
 asyncio.run(my_target.run.daemon_reload())
 # start an instance of this unit
-asyncio.run(my_target.run.start(instance='test'))
+asyncio.run(my_target.run.start(instance='eg1'))
 # get the status
 out, err = asyncio.run(my_target.run.status(instance='eg1'))
 print(out)
@@ -42,7 +42,7 @@ print(out)
 #  ... systemd[...]: Reached target Target instance eg1.
 
 # stop the instance again
-asyncio.run(my_target.run.stop(instance='test'))
+asyncio.run(my_target.run.stop(instance='eg1'))
 # remove the unit file again
 my_target.remove()
 ```

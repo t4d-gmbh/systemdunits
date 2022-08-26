@@ -1,6 +1,7 @@
 import os
 import copy
 import typing
+import warnings
 from types import SimpleNamespace
 
 from .unit_configs import (
@@ -190,6 +191,72 @@ class SystemUnit(object):
     @property
     def is_batched(self):
         return self._batched
+
+    @property
+    def existing(self):
+        """List units for which a file exists
+
+        **Note:**
+
+        This method does not compare if the configuration of the existing file
+        matched.
+
+        See `exists` for an example
+        """
+        assert self._batched, 'This method is only allowed for batched units'
+        return [name
+                for name in self.expanded_names()
+                if os.path.exists(self._filename(name))]
+
+    @property
+    def exists(self):
+        """Is the unit already written to disk
+
+        **Note:**
+
+        This method does not compare if the configuration of the existing file
+        matched.
+
+        Examples:
+        ---------
+        >>> my_unit = SystemUnit(name='test_unit.service')
+        >>> my_unit.exists
+        False
+        >>> my_unit.write()
+        >>> my_unit.exists
+        True
+        >>> my_unit.remove()
+        >>> my_unit.exists
+        False
+
+        For batched units it check if all files exists
+
+        >>> my_unit = SystemUnit(name='test_unit-{case}.service')
+        >>> my_unit.batch_vars.case = [1,2,3]
+        >>> my_unit.exists
+        False
+        >>> my_unit.write()
+        >>> my_unit.exists
+        True
+        >>> my_unit_case_2 = SystemUnit(name='test_unit-2.service')
+        >>> my_unit_case_2.exists
+        True
+        >>> my_unit_case_2.remove()
+        >>> my_unit_case_2.exists
+        False
+        >>> my_unit.exists  # case=2 is missing now
+        False
+        >>> my_unit.existing
+        ['test_unit-1.service', 'test_unit-3.service']
+        >>> my_unit.remove()
+        >>> my_unit.exists
+        False
+        """
+        return all((os.path.exists(self._filename(name))
+                    for name in self.expanded_names()))
+
+    def _filename(self, name):
+        return os.path.join(self.path, name)
 
     @property
     def full_name(self):
@@ -427,5 +494,5 @@ class SystemUnit(object):
             try:
                 os.remove(os.path.join(self.path, name))
             except FileNotFoundError:
-                raise Warning(f'No unit matching the name {name} to remove at'
-                              f'{self.path}')
+                warnings.warn(f'No unit matching the name {name} to remove at'
+                              f'{self.path}', Warning)
