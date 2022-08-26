@@ -5,9 +5,91 @@ from types import SimpleNamespace
 
 
 class _Run:
+    """Defines a set of methods that run systemd commands.
+
+    Examples:
+    ---------
+
+    >>> from sysunit import SystemUnit
+    >>> my_unit = SystemUnit(
+    ...        'test-unit-run',
+    ...         type='target',
+    ...         manager='--user'
+    ...     )
+    >>> my_unit.from_dict(
+    ...     dict(
+    ...         Unit=dict(Description='From a test on _Run'),
+    ...         Install=dict(WantedBy='multi-user.target')
+    ...     )
+    ... )
+    >>> my_unit.write()
+    >>> asyncio.run(my_unit.run.daemon_reload())
+    ('', '')
+    >>> asyncio.run(my_unit.run.start())
+    ('', '')
+    >>> out, err = asyncio.run(my_unit.run.status())
+    >>> err
+    ''
+    >>> print(out)  # doctest:+ELLIPSIS
+    ...             # doctest:+NORMALIZE_WHITESPACE
+    ● test-unit-run.target - From a test on _Run
+    Loaded: loaded (.../.config/systemd/user/test-unit-run.target; disabled;
+            vendor preset: enabled)
+    Active: active since ... ago
+    ... systemd[...]: Reached target From a test on _Run.
+
+    >>> out, err = asyncio.run(my_unit.run.enable())
+    >>> out
+    ''
+    >>> print(err)  # doctest:+ELLIPSIS
+    ...             # doctest:+NORMALIZE_WHITESPACE
+    Created symlink
+    .../.config/systemd/user/multi-user.target.wants/test-unit-run.target →
+    .../.config/systemd/user/test-unit-run.target.
+    >>> out, err = asyncio.run(my_unit.run.status())
+    >>> err
+    ''
+    >>> print(out)  # doctest:+ELLIPSIS
+    ...             # doctest:+NORMALIZE_WHITESPACE
+    ● test-unit-run.target - From a test on _Run
+    Loaded: loaded (.../.config/systemd/user/test-unit-run.target; enabled;
+    vendor preset: enabled)
+    Active: active since ... ago
+    ... systemd[...]: Reached target From a test on _Run.
+    >>> out, err = asyncio.run(my_unit.run.disable())
+    >>> out
+    ''
+    >>> print(err)  # doctest:+ELLIPSIS
+    ...             # doctest:+NORMALIZE_WHITESPACE
+    Removed
+    .../.config/systemd/user/multi-user.target.wants/test-unit-run.target.
+    >>> out, err = asyncio.run(my_unit.run.status())
+    >>> err
+    ''
+    >>> print(out)  # doctest:+ELLIPSIS
+    ...             # doctest:+NORMALIZE_WHITESPACE
+    ● test-unit-run.target - From a test on _Run
+    Loaded: loaded (.../.config/systemd/user/test-unit-run.target; disabled;
+    vendor preset: enabled)
+    Active: active since ... ago
+    ... systemd[...]: Reached target From a test on _Run.
+    >>> asyncio.run(my_unit.run.stop())
+    ('', '')
+    >>> out, err = asyncio.run(my_unit.run.status())
+    >>> err
+    ''
+    >>> print(out)  # doctest:+ELLIPSIS
+    ...             # doctest:+NORMALIZE_WHITESPACE
+    ● test-unit-run.target - From a test on _Run
+    Loaded: loaded (.../.config/systemd/user/test-unit-run.target; disabled;
+    vendor preset: enabled)
+    Active: inactive (dead)
+    ...
+    >>> my_unit.remove()
+    """
     def __init__(self, sysunit, manager: str = '--user'):
         self.sysunit = sysunit
-        # TODO: store the last status here
+        # TODO: store the last status here (or store in SysUnit?)
         self.last = SimpleNamespace
         assert manager in ['--user', '--system']
         self.manager = manager
@@ -38,14 +120,14 @@ class _Run:
     async def _unit_cmd(self, command, instance, env):
         if self.sysunit.is_batched:
             stdout, stderr = {}, {}
-            for name in self.sysunit.instance_names(instance=instance):
+            for name in self.sysunit.expanded_names(instance=instance):
                 _stdout, _stderr = await self.async_systemctl(
                         name, command, env=env)
                 stdout[name] = _stdout
                 stderr[name] = _stderr
         else:
             stdout, stderr = await self.async_systemctl(
-                    self.sysunit.instance_name(instance), command, env=env)
+                    self.sysunit.expanded_name(instance), command, env=env)
         return stdout, stderr
 
     async def status(self, instance: typing.Optional[str] = None,
@@ -56,7 +138,7 @@ class _Run:
         --------
         >>> from sysunit import SystemUnit
         >>> my_unit = SystemUnit(name='test_unit-{custom}@',
-        ...                      unit_type='target')
+        ...                      type='target')
         >>> my_unit.path='~/.config/systemd/user'
         >>> my_unit.batch_vars.custom = ['bla', 'bli']
         >>> config_data = dict(
@@ -78,8 +160,8 @@ class _Run:
         ...     print(stdout[name])
         ...     print('-')
         ...     print(stderr[name])
-        ...     print('---') # doctest:+ELLIPSIS
-        ...     # doctest:+NORMALIZE_WHITESPACE
+        ...     print('---')  # doctest:+ELLIPSIS
+        ...                   # doctest:+NORMALIZE_WHITESPACE
         test_unit-bla@1.target
         -
         ● test_unit-bla@1.target - this is "bla" dummy target
@@ -105,7 +187,8 @@ class _Run:
         # TODO: wrap the output and update the 'last' status.
         return await self._unit_cmd('status', instance=instance, env=env)
 
-    async def start(self, instance: typing.Optional[str],
+    async def start(self,
+                    instance: typing.Optional[str] = None,
                     env: typing.Optional[dict] = None):
         """Start a unit
 
@@ -113,7 +196,7 @@ class _Run:
         --------
         >>> from sysunit import SystemUnit
         >>> my_unit = SystemUnit(name='test_unit@',
-        ...                      unit_type='target')
+        ...                      type='target')
         >>> my_unit.path='~/.config/systemd/user'
         >>> config_data = dict(
         ...     Unit=dict(
@@ -161,15 +244,18 @@ class _Run:
         """
         return await self._unit_cmd('start', instance=instance, env=env)
 
-    async def stop(self, instance: typing.Optional[str],
+    async def stop(self,
+                   instance: typing.Optional[str] = None,
                    env: typing.Optional[dict] = None):
         return await self._unit_cmd('stop', instance=instance, env=env)
 
-    async def enable(self, instance: typing.Optional[str],
+    async def enable(self,
+                     instance: typing.Optional[str] = None,
                      env: typing.Optional[dict] = None):
         return await self._unit_cmd('enable', instance=instance, env=env)
 
-    async def disable(self, instance: typing.Optional[str],
+    async def disable(self,
+                      instance: typing.Optional[str] = None,
                       env: typing.Optional[dict] = None):
         return await self._unit_cmd('disable', instance=instance, env=env)
 

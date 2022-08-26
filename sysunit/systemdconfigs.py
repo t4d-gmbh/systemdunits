@@ -19,8 +19,8 @@ class SystemUnit(object):
     def __init__(self,
                  name,
                  unit_config: typing.Optional[UnitConfig] = None,
-                 unit_type: typing.Optional[str] = 'service',
-                 path: str = None,
+                 type: typing.Optional[str] = 'service',
+                 path: str = '~/.config/systemd/user',
                  template: bool = False,
                  manager: str = '--user'
                  ):
@@ -34,7 +34,7 @@ class SystemUnit(object):
           **escape all `{` and `}` that should not be formatted!**
           Hint: replace for example `"${HOME}"` with `"${{HOME}}"`.
         - If the unit type is provided as an extension in `name` then the
-          parameter `unit_type` is ignored.
+          parameter `type` is ignored.
         - If `name` contains an "@" then the parameter `template` is ignored
           and the unit is considered a template.
         - If 'unit_config' is provided it overwrites all set attributes that
@@ -55,7 +55,7 @@ class SystemUnit(object):
           True
 
         """
-        self.type = unit_type
+        self.type = type
         self.template = template
         self.name = name
         self.path = path
@@ -207,8 +207,40 @@ class SystemUnit(object):
         """
         return self._full_name(self.name)
 
-    @property
-    def expanded_names(self):
+    def expanded_name(self,
+                      instance: typing.Optional[str] = None,
+                      **batch_kws):
+        """Get the fully formatted name of a unit or instance
+
+        If the unit is a template then you might specify a particular instance.
+
+        If the unit is batched the you can provide a particular batch value.
+        In this case the values present in `self.batch_vars` are ignored and
+        the name is rendered with the provided values. If you want the get the
+        names formatted with the values saved, use `expanded_names` instead.
+
+        Examples:
+        ---------
+
+        >>> my_unit = SystemUnit(name='my_unit-{tag}@.service')
+        >>> my_unit.full_name
+        'my_unit-{tag}@.service'
+        >>> my_unit.expanded_name()
+        'my_unit-{tag}@.service'
+        >>> my_unit.expanded_name(instance='bla')
+        'my_unit-{tag}@bla.service'
+        >>> my_unit.expanded_name(instance='bla', tag='test')
+        'my_unit-test@bla.service'
+        """
+        if batch_kws:
+            name = self._formatted_name(**batch_kws)
+        else:
+            name = self.name
+        return self._full_name(name, instance)
+
+    def expanded_names(self,
+                       instance: typing.Optional[str] = None,
+                       ):
         """Get a list of all unit names.
 
         **Note:**
@@ -218,74 +250,41 @@ class SystemUnit(object):
         Example:
 
         >>> my_unit_batch = SystemUnit(name='my_unit-{custom}.service')
-        >>> my_unit_batch.batch_vars.custom = ['bla', 'blu', 'bli']
-        >>> print(my_unit_batch.full_name)
-        my_unit-{custom}.service
-        >>> for unit_name in my_unit_batch.expanded_names:
-        ...     print(unit_name)
-        my_unit-bla.service
-        my_unit-blu.service
-        my_unit-bli.service
-        """
-        return self._expanded_names(self._formatted_name)
+        >>> my_unit_batch.batch_vars.custom = ['bla', 'blu']
+        >>> my_unit_batch.full_name
+        'my_unit-{custom}.service'
+        >>> for unit_name in my_unit_batch.expanded_names():
+        ...     unit_name
+        'my_unit-bla.service'
+        'my_unit-blu.service'
 
-    def _expanded_names(self, formatter):
+        You can get names of a particular instance if the unit is templated:
+
+        >>> my_unit_batch = SystemUnit(name='my_unit@.service')
+        >>> my_unit_batch.full_name
+        'my_unit@.service'
+        >>> for unit_name in my_unit_batch.expanded_names(instance='hello'):
+        ...     unit_name
+        'my_unit@hello.service'
+        """
         if not self._batched:
-            return [self.full_name, ]
+            return [self.expanded_name(instance=instance), ]
         else:
             names = []
             batched_variables = self._get_batched_vars()
             nbr_values = len(next(iter(batched_variables.values())))
             for i in range(nbr_values):
                 _variables = {k: v[i] for k, v in batched_variables.items()}
-                names.append(formatter(**_variables))
+                names.append(
+                    self._full_name(self._formatted_name(**_variables),
+                                    instance)
+                )
             return names
 
     def _full_name(self, name, instance: typing.Optional[str] = None):
         if instance is None:
             instance = ''
         return f'{name}{self._template_str}{instance}.{self.type}'
-
-    def _instance_name(self, name: str,  instance: str):
-        if self._template:
-            assert self._template, 'The unit must be a template! You can'\
-                    ' convert a unit to a template by setting self.template'\
-                    ' = True'
-        return self._full_name(name, instance=instance)
-
-    def instance_name(self, instance: str):
-        """Get the full name for a particular instance
-
-        Example:
-
-        >>> my_new_unit = SystemUnit(name='my_unit@.service')
-        >>> print(my_new_unit.full_name)
-        my_unit@.service
-        >>> print(my_new_unit.instance_name('inst1'))
-        my_unit@inst1.service
-        """
-        return self._instance_name(name=self.name, instance=instance)
-
-    def instance_names(self, instance: str):
-        """Get the names for all units in the batch for a particular instance
-
-        Example:
-
-        >>> my_new_unit = SystemUnit(name='my_unit-{case}@.service')
-        >>> my_new_unit.batch_vars.case = [1, 2, 3]
-        >>> print(my_new_unit.full_name)
-        my_unit-{case}@.service
-        >>> for name in my_new_unit.instance_names('inst1'):
-        ...     print(name)
-        my_unit-1@inst1.service
-        my_unit-2@inst1.service
-        my_unit-3@inst1.service
-        """
-        assert self._batched, 'This method only works on batched units!'\
-                              'Use the method `instance_name` instead.'
-        return self._expanded_names(
-            partial(self._formatted_instance_name, instance=instance)
-        )
 
     def to_dict(self):
         """Export the configuration to a dictionary
@@ -326,9 +325,9 @@ class SystemUnit(object):
         return self._type
 
     @type.setter
-    def type(self, unit_type: str):
+    def type(self, type: str):
         # TODO: make sure the type is a valid type
-        self._type = unit_type
+        self._type = type
         # NOTE: to get rid of once UnitConfig drops extension
         if hasattr(self, '_config'):
             self._config.extension = self._type
@@ -391,7 +390,7 @@ class SystemUnit(object):
         for i in range(nbr_values):
             _variables = {k: v[i] for k, v in batched_variables.items()}
             new_config = copy.deepcopy(self.config)
-            name = self._formatted_name(**_variables)
+            name = self._full_name(self._formatted_name(**_variables))
             config = self._formatted_config(new_config, **_variables)
             yield name, config
 
@@ -403,14 +402,14 @@ class SystemUnit(object):
 
     @noglobals
     def _formatted_name(self, **variables):
-        return self._full_name(self.name.format(**variables))
+        return self.name.format(**variables)
 
-    @noglobals
-    def _formatted_instance_name(self,
-                                 instance: typing.Optional[str],
-                                 **variables):
-        return self._full_name(self.name.format(**variables),
-                               instance=instance)
+    # @noglobals
+    # def _formatted_instance_name(self,
+    #                              instance: typing.Optional[str],
+    #                              **variables):
+    #     return self._full_name(self.name.format(**variables),
+    #                            instance=instance)
 
     @noglobals
     def _formatted_config(self, new_config, **variables):
@@ -425,7 +424,7 @@ class SystemUnit(object):
         """Remove unit files from disk.
         """
         # TODO: allow removal of single unit if it is _batched
-        for name in self.expanded_names:
+        for name in self.expanded_names():
             try:
                 os.remove(os.path.join(self.path, name))
             except FileNotFoundError:
