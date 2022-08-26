@@ -7,6 +7,7 @@ from types import SimpleNamespace
 class _Run:
     def __init__(self, sysunit, manager: str = '--user'):
         self.sysunit = sysunit
+        # TODO: store the last status here
         self.last = SimpleNamespace
         assert manager in ['--user', '--system']
         self.manager = manager

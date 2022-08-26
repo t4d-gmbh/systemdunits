@@ -3,17 +3,18 @@
 .. moduleauthor:: Jonas Liechti
 
 """
-import doctest
-
-from .custom import MultiConfigParser
-from .systemdconfigs import SystemUnit, TimerConfig
+from .configs import MultiConfigParser
+from .systemdconfigs import SystemUnit
 
 
 __all__ = [
-    'SystemUnit', 'TimerConfig'
+    'SystemUnit', 'MultiConfigParser'
 ]
 
+
 def load_tests(loader, tests, ignore):
+    import doctest
+
     tests.addTests(doctest.DocTestSuite(systemdconfigs))
     tests.addTests(doctest.DocTestSuite(commands))
     return tests
