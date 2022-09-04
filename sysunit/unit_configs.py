@@ -10,7 +10,8 @@ class UnitConfig(MultiConfigParser):
     def __init__(self, name: str = None, extension: str = None):
         super().__init__(default_section=None,
                          interpolation=None,
-                         dict_type=OrderedDict
+                         dict_type=OrderedDict,
+                         strict=False
                          )
         self.optionxform = str
         self.name = name
