@@ -258,7 +258,7 @@ class _Run:
                       env: typing.Optional[dict] = None):
         return await self._unit_cmd('disable', instance=instance, env=env)
 
-    async def daemon_reload(self):
+    async def daemon_reload(self, env: typing.Optional[dict] = None):
         """Reload the systemd daemon
 
         Example:
@@ -267,4 +267,4 @@ class _Run:
         >>> out, err = asyncio.run(_Run(None).daemon_reload())
         """
         return await self.async_systemctl(
-                unit='', command='daemon-reload')
+                unit='', command='daemon-reload', env=env)
