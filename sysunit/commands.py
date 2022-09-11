@@ -1,6 +1,5 @@
 import typing
-import asyncio
-
+import asyncio 
 from types import SimpleNamespace
 
 
@@ -97,7 +96,7 @@ class _Run:
     async def async_systemctl(self,
                               unit: str,
                               command: str,
-                              env: dict = dict(),
+                              env: dict = None,
                               stdout=asyncio.subprocess.PIPE,
                               stderr=asyncio.subprocess.PIPE,
                               encoding='utf-8'
@@ -112,7 +111,7 @@ class _Run:
         if unit:
             args.append(unit)
         proc = await asyncio.create_subprocess_exec(
-            *args, stdout=stdout, stderr=stderr
+            *args, env=env, stdout=stdout, stderr=stderr
         )
         stdout, stderr = await proc.communicate()
         return stdout.decode(encoding), stderr.decode(encoding)
